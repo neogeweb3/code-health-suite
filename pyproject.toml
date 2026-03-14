@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "code-health-suite"
+version = "0.4.0"
+description = "12 analysis engines, 20 MCP tools for Python code quality. Zero external dependencies."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Neo", email = "nge@users.noreply.github.com" },
+]
+keywords = ["mcp", "code-health", "static-analysis", "complexity", "security", "dead-code", "python"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/nge/code-health-suite"
+Repository = "https://github.com/nge/code-health-suite"
+
+[project.scripts]
+code-health-suite = "code_health_suite.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/code_health_suite"]
