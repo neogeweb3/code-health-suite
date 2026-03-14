@@ -700,6 +700,12 @@ def find_unreachable_code(tree: ast.Module) -> list[Finding]:
                     check_body(child.body, f"with block in '{node.name}'")
                 elif isinstance(child, ast.ExceptHandler):
                     check_body(child.body, f"except block in '{node.name}'")
+                elif isinstance(child, ast.Try):
+                    check_body(child.body, f"try block in '{node.name}'")
+                    check_body(child.orelse, f"try/else block in '{node.name}'")
+                    check_body(child.finalbody, f"finally block in '{node.name}'")
+                elif isinstance(child, ast.AsyncWith):
+                    check_body(child.body, f"async with block in '{node.name}'")
 
     return findings
 
