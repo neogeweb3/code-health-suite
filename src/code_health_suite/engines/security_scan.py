@@ -374,7 +374,6 @@ class SecurityVisitor(ast.NodeVisitor):
         self._check_command_injection(node)
         self._check_insecure_deserialization(node)
         self._check_insecure_yaml(node)
-        self._check_insecure_random(node)
         self._check_insecure_temp(node)
         self._check_sql_injection(node)
         self._check_weak_crypto(node)
@@ -460,18 +459,6 @@ class SecurityVisitor(ast.NodeVisitor):
             if not has_loader and not has_positional_loader:
                 self._add(node, "insecure-yaml", "high",
                           "yaml.load() without Loader parameter — use yaml.safe_load() or specify Loader=yaml.SafeLoader")
-
-    # --- Rule: insecure random ---
-
-    def _check_insecure_random(self, node: ast.Call) -> None:
-        name = self._get_call_name(node)
-        if name.startswith("random.") and not name.startswith("random.System"):
-            # Only flag in security-sensitive contexts (heuristic: near token/key/secret generation)
-            # For now, flag common patterns
-            if name in ("random.random", "random.randint", "random.choice",
-                         "random.randrange", "random.getrandbits"):
-                # Check if result is assigned to a security-sounding variable
-                pass  # Will be checked at assignment level
 
     # --- Rule: insecure temp files ---
 
@@ -658,6 +645,20 @@ class SecurityVisitor(ast.NodeVisitor):
         self._check_hardcoded_ip_assign(node)
         self.generic_visit(node)
 
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Handle annotated assignments like `password: str = "secret123"`."""
+        if node.value is not None:
+            # Wrap as Assign so existing checks can reuse unchanged
+            fake = ast.Assign(targets=[node.target], value=node.value)
+            fake.lineno = node.lineno  # type: ignore[attr-defined]
+            fake.col_offset = node.col_offset  # type: ignore[attr-defined]
+            self._track_const_url_assign(fake)
+            self._check_hardcoded_secret(fake)
+            self._check_insecure_random_assign(fake)
+            self._check_debug_enabled(fake)
+            self._check_hardcoded_ip_assign(fake)
+        self.generic_visit(node)
+
     def _get_assign_name(self, node: ast.Assign) -> str:
         """Get variable name from assignment."""
         if node.targets and isinstance(node.targets[0], ast.Name):
@@ -709,14 +710,6 @@ class SecurityVisitor(ast.NodeVisitor):
                 var_name = self._get_assign_name(node)
                 self._add(node, "hardcoded-ip", "low",
                           f"Hardcoded private IP/URL in '{var_name}' — use configuration or env vars")
-
-    # --- String-level checks (catches patterns not in assignments) ---
-
-    def visit_Constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, str) and len(node.value) > 8:
-            # Detect SQL in string constants
-            pass  # Handled at execute() call level
-        self.generic_visit(node)
 
 
 # --- File scanner ---
