@@ -806,11 +806,8 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
 
     # Type coverage
     type_file_results = []
-    for root_dir, _, files in os.walk(path):
-        for fname in files:
-            if fname.endswith('.py'):
-                fpath = os.path.join(root_dir, fname)
-                type_file_results.append(type_audit.analyze_file(fpath))
+    for fpath in type_audit.find_python_files(path):
+        type_file_results.append(type_audit.analyze_file(fpath))
     ta_result = type_audit.aggregate_results(path, type_file_results)
     ta_score = type_audit.compute_score(ta_result)
     ta_grade = type_audit.score_to_grade(ta_score)
@@ -1042,17 +1039,8 @@ def handle_analyze_type_coverage(args: dict[str, Any]) -> dict[str, Any]:
     if err := _check_path(path):
         return {"error": err}
 
-    if os.path.isfile(path):
-        fr = type_audit.analyze_file(path)
-        result = type_audit.aggregate_results(path, [fr])
-    else:
-        file_results = []
-        for root_dir, _, files in os.walk(path):
-            for fname in files:
-                if fname.endswith('.py'):
-                    fpath = os.path.join(root_dir, fname)
-                    file_results.append(type_audit.analyze_file(fpath))
-        result = type_audit.aggregate_results(path, file_results)
+    file_results = [type_audit.analyze_file(f) for f in type_audit.find_python_files(path)]
+    result = type_audit.aggregate_results(path, file_results)
 
     return {
         "target": result.target,
@@ -1074,17 +1062,8 @@ def handle_get_type_score(args: dict[str, Any]) -> dict[str, Any]:
     if err := _check_path(path):
         return {"error": err}
 
-    if os.path.isfile(path):
-        fr = type_audit.analyze_file(path)
-        result = type_audit.aggregate_results(path, [fr])
-    else:
-        file_results = []
-        for root_dir, _, files in os.walk(path):
-            for fname in files:
-                if fname.endswith('.py'):
-                    fpath = os.path.join(root_dir, fname)
-                    file_results.append(type_audit.analyze_file(fpath))
-        result = type_audit.aggregate_results(path, file_results)
+    file_results = [type_audit.analyze_file(f) for f in type_audit.find_python_files(path)]
+    result = type_audit.aggregate_results(path, file_results)
 
     score = type_audit.compute_score(result)
     grade = type_audit.score_to_grade(score)
