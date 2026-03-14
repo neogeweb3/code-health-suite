@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server: Code Health Suite v0.4.0 — 12 analysis engines, 20 tools.
+"""MCP server: Code Health Suite v0.5.0 — 13 analysis engines, 22 tools.
 
 Bundles complexity, dead code, security, import graph, clone detection,
 test quality, hotspot, dependency audit, change impact, type coverage,
@@ -41,11 +41,12 @@ from code_health_suite.engines import change_impact
 from code_health_suite.engines import type_audit
 from code_health_suite.engines import env_audit
 from code_health_suite.engines import git_audit
+from code_health_suite.engines import naming_check
 
 # --- Constants ---
 
 SERVER_NAME = "code-health-suite"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 # --- Tool Definitions ---
@@ -492,12 +493,49 @@ TOOLS = [
             "required": ["repo"],
         },
     },
+    # --- Naming convention tools ---
+    {
+        "name": "check_naming",
+        "description": (
+            "Check Python naming conventions (PEP 8). Detects violations: "
+            "functions/methods must be snake_case, classes must be CamelCase, "
+            "constants must be UPPER_SNAKE_CASE. Returns violations with suggestions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path to check.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_naming_score",
+        "description": (
+            "Get a naming convention health score (0-100) with grade. "
+            "Measures PEP 8 naming compliance: snake_case functions, "
+            "CamelCase classes, UPPER_SNAKE_CASE constants."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory path to check.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
     # --- Combined ---
     {
         "name": "full_health_check",
         "description": (
             "Run all analyses (complexity + dead code + security + imports + "
-            "clones + test quality + type coverage + env audit) on a Python project "
+            "clones + test quality + type coverage + env audit + naming conventions) on a Python project "
             "and return a combined health report with scores, grades, and top issues. "
             "Note: hotspot, dependency, and change impact require additional context "
             "(git repo, requirements files, changed files) so are excluded from this scan."
@@ -787,7 +825,11 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
         env_code_vars[ref.name] = env_code_vars.get(ref.name, 0) + 1
     env_score_val, env_grade = env_audit.calculate_score(env_findings, env_files, env_code_vars)
 
-    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade]
+    # Naming conventions
+    nc_result = naming_check.scan(path)
+    nc_score = naming_check.compute_score(nc_result)
+
+    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade]
 
     return {
         "path": path,
@@ -840,6 +882,12 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
             "score": env_score_val,
             "grade": env_grade,
             "total_findings": len(env_findings),
+        },
+        "naming": {
+            "score": nc_score.score,
+            "grade": nc_score.grade,
+            "total_violations": nc_score.total_violations,
+            "violation_rate": nc_score.violation_rate,
         },
         "overall_grade": _combined_grade(grades),
     }
@@ -1167,6 +1215,45 @@ def handle_get_git_audit_score(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_check_naming(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = naming_check.scan(path)
+
+    violations_list = []
+    for v in result.violations:
+        violations_list.append({
+            "file": v.file_path,
+            "line": v.line_number,
+            "name": v.name,
+            "kind": v.kind,
+            "convention": v.convention,
+            "suggestion": v.suggestion,
+            "message": v.message,
+        })
+
+    return {
+        "files_scanned": result.files_scanned,
+        "names_checked": result.total_names,
+        "total_violations": result.total_violations,
+        "by_kind": result.by_kind,
+        "violations": violations_list,
+        "errors": result.errors,
+    }
+
+
+def handle_get_naming_score(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = naming_check.scan(path)
+    score = naming_check.compute_score(result)
+    return score.to_dict()
+
+
 TOOL_HANDLERS = {
     "analyze_complexity": handle_analyze_complexity,
     "get_complexity_score": handle_get_complexity_score,
@@ -1187,6 +1274,8 @@ TOOL_HANDLERS = {
     "audit_env_vars": handle_audit_env_vars,
     "audit_git_commits": handle_audit_git_commits,
     "get_git_audit_score": handle_get_git_audit_score,
+    "check_naming": handle_check_naming,
+    "get_naming_score": handle_get_naming_score,
     "full_health_check": handle_full_health_check,
 }
 
