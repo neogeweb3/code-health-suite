@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server: Code Health Suite v0.5.0 — 13 analysis engines, 22 tools.
+"""MCP server: Code Health Suite v0.6.0 — 14 analysis engines, 24 tools.
 
 Bundles complexity, dead code, security, import graph, clone detection,
 test quality, hotspot, dependency audit, change impact, type coverage,
@@ -42,11 +42,12 @@ from code_health_suite.engines import type_audit
 from code_health_suite.engines import env_audit
 from code_health_suite.engines import git_audit
 from code_health_suite.engines import naming_check
+from code_health_suite.engines import todo_scanner
 
 # --- Constants ---
 
 SERVER_NAME = "code-health-suite"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.6.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 # --- Tool Definitions ---
@@ -530,12 +531,62 @@ TOOLS = [
             "required": ["path"],
         },
     },
+    # --- TODO scanner tools ---
+    {
+        "name": "scan_todos",
+        "description": (
+            "Scan source code for technical debt markers: TODO, FIXME, HACK, XXX, "
+            "BUG, NOTE, OPTIMIZE, REFACTOR comments. Returns items with file, line, "
+            "tag, severity, and message. Optionally enriches with git blame metadata."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path to scan.",
+                },
+                "blame": {
+                    "type": "boolean",
+                    "description": "Enrich with git blame metadata (author, date). Slower.",
+                    "default": False,
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Filter by specific tag (e.g., TODO, FIXME, HACK).",
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Filter by minimum severity level.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_todo_score",
+        "description": (
+            "Get a technical debt health score (0-100) with grade based on "
+            "density and severity of TODO/FIXME/HACK markers. Shows hotspot files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory path to scan.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
     # --- Combined ---
     {
         "name": "full_health_check",
         "description": (
             "Run all analyses (complexity + dead code + security + imports + "
-            "clones + test quality + type coverage + env audit + naming conventions) on a Python project "
+            "clones + test quality + type coverage + env audit + naming + TODO debt) on a Python project "
             "and return a combined health report with scores, grades, and top issues. "
             "Note: hotspot, dependency, and change impact require additional context "
             "(git repo, requirements files, changed files) so are excluded from this scan."
@@ -826,7 +877,11 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
     nc_result = naming_check.scan(path)
     nc_score = naming_check.compute_score(nc_result)
 
-    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade]
+    # TODO/FIXME scanner
+    td_result = todo_scanner.scan(path)
+    td_score = todo_scanner.compute_score(td_result)
+
+    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade, td_score.grade]
 
     return {
         "path": path,
@@ -885,6 +940,13 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
             "grade": nc_score.grade,
             "total_violations": nc_score.total_violations,
             "violation_rate": nc_score.violation_rate,
+        },
+        "todo_debt": {
+            "score": td_score.score,
+            "grade": td_score.grade,
+            "total_items": td_score.total_items,
+            "density": td_score.density,
+            "by_severity": td_score.by_severity,
         },
         "overall_grade": _combined_grade(grades),
     }
@@ -1233,6 +1295,70 @@ def handle_get_naming_score(args: dict[str, Any]) -> dict[str, Any]:
     return score.to_dict()
 
 
+def handle_scan_todos(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = todo_scanner.scan(path)
+
+    # Filter by tag
+    tag_filter = args.get("tag")
+    if tag_filter:
+        tag_upper = tag_filter.upper()
+        result.items = [i for i in result.items if i.tag == tag_upper]
+        result.total_items = len(result.items)
+
+    # Filter by severity
+    sev_filter = args.get("severity")
+    if sev_filter:
+        sev_order = {"high": 3, "medium": 2, "low": 1}
+        min_sev = sev_order.get(sev_filter, 0)
+        result.items = [i for i in result.items if sev_order.get(i.severity, 0) >= min_sev]
+        result.total_items = len(result.items)
+
+    # Enrich with blame if requested
+    if args.get("blame"):
+        todo_scanner.enrich_with_blame(result.items)
+
+    items_list = []
+    for item in result.items:
+        d = {
+            "file": item.file_path,
+            "line": item.line_number,
+            "tag": item.tag,
+            "severity": item.severity,
+            "message": item.message,
+        }
+        if item.inline_author:
+            d["inline_author"] = item.inline_author
+        if item.blame_author:
+            d["blame_author"] = item.blame_author
+            d["blame_date"] = item.blame_date
+            d["blame_age_days"] = item.blame_age_days
+        items_list.append(d)
+
+    return {
+        "files_scanned": result.files_scanned,
+        "total_lines": result.total_lines,
+        "total_items": result.total_items,
+        "by_tag": result.by_tag,
+        "by_severity": result.by_severity,
+        "items": items_list,
+        "errors": result.errors,
+    }
+
+
+def handle_get_todo_score(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = todo_scanner.scan(path)
+    score = todo_scanner.compute_score(result)
+    return score.to_dict()
+
+
 TOOL_HANDLERS = {
     "analyze_complexity": handle_analyze_complexity,
     "get_complexity_score": handle_get_complexity_score,
@@ -1255,6 +1381,8 @@ TOOL_HANDLERS = {
     "get_git_audit_score": handle_get_git_audit_score,
     "check_naming": handle_check_naming,
     "get_naming_score": handle_get_naming_score,
+    "scan_todos": handle_scan_todos,
+    "get_todo_score": handle_get_todo_score,
     "full_health_check": handle_full_health_check,
 }
 
