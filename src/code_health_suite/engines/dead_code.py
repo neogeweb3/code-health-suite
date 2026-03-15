@@ -890,6 +890,7 @@ def find_python_files(path: str) -> list[str]:
             d for d in dirs
             if d not in EXCLUDED_DIRS
             and not d.startswith(".")
+            and not d.endswith(".egg-info")
             and "site-packages" not in d
             and not (d.startswith(".venv") or d.endswith("_env") or d.endswith("_venv"))
         ]
@@ -965,7 +966,7 @@ def _should_auto_cross_module(path: str) -> bool:
     # Quick check: are there at least 2 Python files?
     count = 0
     for root, dirs, filenames in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".")]
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".") and not d.endswith(".egg-info")]
         for fname in filenames:
             if fname.endswith(".py"):
                 count += 1
