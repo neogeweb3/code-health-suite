@@ -278,19 +278,75 @@ def _extract_class(node: ast.ClassDef, filepath: str, min_lines: int, blocks: li
 
 # --- Similarity computation ---
 
-def compute_similarity(block_a: CodeBlock, block_b: CodeBlock) -> float:
-    """Compute structural similarity between two code blocks (0.0 to 1.0)."""
-    # Quick reject: if node counts differ by more than 50%, skip detailed comparison
+_NGRAM_SIZE = 4
+_SEQMATCH_CHAR_LIMIT = 5000  # Only use expensive SequenceMatcher below this
+
+
+def _build_ngram_set(s: str, n: int = _NGRAM_SIZE) -> frozenset[str]:
+    """Build a set of character n-grams from a string. O(len(s))."""
+    if len(s) < n:
+        return frozenset([s]) if s else frozenset()
+    return frozenset(s[i:i + n] for i in range(len(s) - n + 1))
+
+
+def _jaccard_similarity(set_a: frozenset, set_b: frozenset) -> float:
+    """Jaccard similarity of two sets. O(min(|A|,|B|))."""
+    if not set_a or not set_b:
+        return 0.0
+    intersection = len(set_a & set_b)
+    union = len(set_a) + len(set_b) - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def compute_similarity(
+    block_a: CodeBlock,
+    block_b: CodeBlock,
+    threshold: float = DEFAULT_THRESHOLD,
+    ngram_a: frozenset | None = None,
+    ngram_b: frozenset | None = None,
+) -> float:
+    """Compute structural similarity between two code blocks (0.0 to 1.0).
+
+    Uses progressive filtering:
+    1. Node count ratio (O(1))
+    2. String length ratio (O(1))
+    3. N-gram Jaccard similarity (O(n+m), pre-computed sets)
+    4. SequenceMatcher (O(n*m)) — only for small blocks that pass Jaccard filter
+    """
+    # Filter 1: node count ratio — O(1)
     if block_a.node_count == 0 or block_b.node_count == 0:
         return 0.0
-    ratio = min(block_a.node_count, block_b.node_count) / max(block_a.node_count, block_b.node_count)
-    if ratio < 0.5:
+    node_ratio = min(block_a.node_count, block_b.node_count) / max(block_a.node_count, block_b.node_count)
+    if node_ratio < threshold * 0.7:
         return 0.0
 
-    # Use SequenceMatcher on normalized AST dump strings
-    return difflib.SequenceMatcher(
-        None, block_a.normalized, block_b.normalized
-    ).ratio()
+    # Filter 2: normalized string length ratio — O(1)
+    len_a, len_b = len(block_a.normalized), len(block_b.normalized)
+    if len_a == 0 or len_b == 0:
+        return 0.0
+    len_ratio = min(len_a, len_b) / max(len_a, len_b)
+    if len_ratio < threshold * 0.8:
+        return 0.0
+
+    # Filter 3: n-gram Jaccard — O(set intersection), pre-computed ngrams
+    if ngram_a is None:
+        ngram_a = _build_ngram_set(block_a.normalized)
+    if ngram_b is None:
+        ngram_b = _build_ngram_set(block_b.normalized)
+    jaccard = _jaccard_similarity(ngram_a, ngram_b)
+    if jaccard < threshold * 0.6:
+        return 0.0
+
+    # For small blocks, refine with SequenceMatcher for accuracy
+    if max(len_a, len_b) <= _SEQMATCH_CHAR_LIMIT:
+        sm = difflib.SequenceMatcher(None, block_a.normalized, block_b.normalized)
+        if sm.quick_ratio() < threshold:
+            return 0.0
+        return sm.ratio()
+
+    # For large blocks, use Jaccard directly (calibrated: Jaccard ~0.6-0.7 ≈ SeqMatch ~0.8)
+    # Jaccard underestimates vs SequenceMatcher, so apply a correction factor
+    return min(1.0, jaccard * 1.3)
 
 
 def classify_clone(block_a: CodeBlock, block_b: CodeBlock, similarity: float) -> str:
@@ -305,35 +361,82 @@ def classify_clone(block_a: CodeBlock, block_b: CodeBlock, similarity: float) ->
 
 # --- Clone detection ---
 
+def _is_nested(a: CodeBlock, b: CodeBlock) -> bool:
+    """Check if two blocks in the same file are nested (one contains the other)."""
+    if a.filepath != b.filepath:
+        return False
+    if a.start_line == b.start_line:
+        return True
+    if a.start_line <= b.start_line and a.end_line >= b.end_line:
+        return True
+    if b.start_line <= a.start_line and b.end_line >= a.end_line:
+        return True
+    return False
+
+
 def find_clones(
     blocks: list[CodeBlock],
     threshold: float = DEFAULT_THRESHOLD,
 ) -> list[ClonePair]:
-    """Find all clone pairs above the similarity threshold."""
+    """Find all clone pairs above the similarity threshold.
+
+    Uses two-phase detection:
+    1. Hash grouping for O(n) type-1/type-2 detection (exact normalized match)
+    2. Pairwise comparison with progressive filtering for type-3 detection
+    """
     clones = []
     n = len(blocks)
 
+    # Phase 1: Hash-based exact match grouping — O(n) total
+    # Blocks with identical normalized AST are type-1 or type-2 clones
+    hash_groups: dict[str, list[int]] = {}
+    for i, block in enumerate(blocks):
+        key = block.normalized
+        if key not in hash_groups:
+            hash_groups[key] = []
+        hash_groups[key].append(i)
+
+    seen_pairs: set[tuple[int, int]] = set()
+
+    for group_idxs in hash_groups.values():
+        if len(group_idxs) < 2:
+            continue
+        for gi in range(len(group_idxs)):
+            for gj in range(gi + 1, len(group_idxs)):
+                i, j = group_idxs[gi], group_idxs[gj]
+                a, b = blocks[i], blocks[j]
+                if _is_nested(a, b):
+                    continue
+                pair_key = (min(i, j), max(i, j))
+                seen_pairs.add(pair_key)
+                clone_type = classify_clone(a, b, 1.0)
+                clones.append(ClonePair(
+                    block_a=a, block_b=b,
+                    similarity=1.0, clone_type=clone_type,
+                ))
+
+    # Phase 2: Pairwise comparison for type-3 clones — with progressive filters
+    # Pre-compute n-gram sets for all blocks — O(N × avg_string_len)
+    ngram_sets = [_build_ngram_set(b.normalized) for b in blocks]
+
     for i in range(n):
         for j in range(i + 1, n):
-            a, b = blocks[i], blocks[j]
-
-            # Skip self-comparisons within same file at same location
-            if a.filepath == b.filepath and a.start_line == b.start_line:
+            pair_key = (i, j)
+            if pair_key in seen_pairs:
                 continue
 
-            # Skip if blocks are nested (one contains the other in same file)
-            if a.filepath == b.filepath:
-                if (a.start_line <= b.start_line and a.end_line >= b.end_line):
-                    continue
-                if (b.start_line <= a.start_line and b.end_line >= a.end_line):
-                    continue
+            a, b = blocks[i], blocks[j]
+            if _is_nested(a, b):
+                continue
 
-            similarity = compute_similarity(a, b)
+            similarity = compute_similarity(
+                a, b, threshold,
+                ngram_a=ngram_sets[i], ngram_b=ngram_sets[j],
+            )
             if similarity >= threshold:
                 clone_type = classify_clone(a, b, similarity)
                 clones.append(ClonePair(
-                    block_a=a,
-                    block_b=b,
+                    block_a=a, block_b=b,
                     similarity=similarity,
                     clone_type=clone_type,
                 ))
