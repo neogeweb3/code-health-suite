@@ -493,7 +493,7 @@ def collect_python_files(path: str, max_files: int = DEFAULT_MAX_FILES) -> list[
     SKIP_DIRS = {
         ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache",
         "node_modules", ".tox", ".nox", ".venv", "venv", "env",
-        ".eggs", "*.egg-info", "dist", "build",
+        ".eggs", "egg-info", "dist", "build",
     }
 
     files = []
@@ -503,6 +503,7 @@ def collect_python_files(path: str, max_files: int = DEFAULT_MAX_FILES) -> list[
             d for d in dirs
             if d not in SKIP_DIRS
             and not d.startswith(".")
+            and not d.endswith(".egg-info")
             and not _is_virtualenv(os.path.join(root, d))
         ]
         for fname in filenames:
@@ -757,7 +758,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         print(format_text(result, base))
 
-    return 0 if not result.clone_pairs else len(result.clone_pairs)
+    return 0 if not result.clone_pairs else 1
 
 
 if __name__ == "__main__":
