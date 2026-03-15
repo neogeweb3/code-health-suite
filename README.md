@@ -1,6 +1,6 @@
 # Code Health Suite
 
-12 analysis engines, 20 MCP tools for Python code quality. Zero external dependencies.
+13 analysis engines, 22 MCP tools for Python code quality. Zero external dependencies.
 
 ## Quick Start
 
@@ -16,16 +16,22 @@
 }
 ```
 
-### Install from GitHub
+### Install from PyPI
 
 ```bash
-pip install git+https://github.com/nge/code-health-suite
+pip install code-health-suite
 ```
 
 Or with uvx (no install needed):
 
 ```bash
-uvx git+https://github.com/nge/code-health-suite
+uvx code-health-suite
+```
+
+### Install from GitHub
+
+```bash
+pip install git+https://github.com/nge/code-health-suite
 ```
 
 ## Tools
