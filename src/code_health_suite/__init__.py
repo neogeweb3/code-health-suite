@@ -1,3 +1,3 @@
-"""Code Health Suite — 12 analysis engines, 20 MCP tools for Python code quality."""
+"""Code Health Suite — 15 analysis engines, 26 MCP tools for Python code quality."""
 
-__version__ = "0.4.0"
+__version__ = "0.7.0"

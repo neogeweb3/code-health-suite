@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server: Code Health Suite v0.6.0 — 14 analysis engines, 24 tools.
+"""MCP server: Code Health Suite v0.7.0 — 15 analysis engines, 26 tools.
 
 Bundles complexity, dead code, security, import graph, clone detection,
 test quality, hotspot, dependency audit, change impact, type coverage,
@@ -43,11 +43,12 @@ from code_health_suite.engines import env_audit
 from code_health_suite.engines import git_audit
 from code_health_suite.engines import naming_check
 from code_health_suite.engines import todo_scanner
+from code_health_suite.engines import bug_detect
 
 # --- Constants ---
 
 SERVER_NAME = "code-health-suite"
-SERVER_VERSION = "0.6.0"
+SERVER_VERSION = "0.7.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 # --- Tool Definitions ---
@@ -581,12 +582,66 @@ TOOLS = [
             "required": ["path"],
         },
     },
+    # --- Bug detection tools ---
+    {
+        "name": "detect_bugs",
+        "description": (
+            "Detect common Python semantic bugs using AST analysis. Finds 8 categories: "
+            "missing f-strings, mutable class variables, late-binding closures, "
+            "call-expression defaults (datetime.now()), mutable default arguments, "
+            "assert-on-tuple, unreachable code, and unreachable exception handlers. "
+            "Every finding indicates a likely real bug, not a style violation."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path to scan.",
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Filter by specific rules. Options: missing-fstring, mutable-class-var, "
+                        "late-binding-closure, call-default, mutable-default-arg, assert-tuple, "
+                        "unreachable-code, unreachable-except. Omit for all rules."
+                    ),
+                },
+                "min_severity": {
+                    "type": "string",
+                    "enum": ["error", "warning", "info"],
+                    "description": "Minimum severity to report (default: info).",
+                    "default": "info",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_bug_score",
+        "description": (
+            "Get a bug detection health score (0-100) with grade (A-F), "
+            "bug profile classification (clean/fstring_heavy/closure_heavy/etc.), "
+            "and breakdown by rule and severity. Quick bug health check."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory path to scan.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
     # --- Combined ---
     {
         "name": "full_health_check",
         "description": (
             "Run all analyses (complexity + dead code + security + imports + "
-            "clones + test quality + type coverage + env audit + naming + TODO debt) on a Python project "
+            "clones + test quality + type coverage + env audit + naming + TODO debt + bug detection) on a Python project "
             "and return a combined health report with scores, grades, and top issues. "
             "Note: hotspot, dependency, and change impact require additional context "
             "(git repo, requirements files, changed files) so are excluded from this scan."
@@ -881,7 +936,11 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
     td_result = todo_scanner.scan(path)
     td_score = todo_scanner.compute_score(td_result)
 
-    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade, td_score.grade]
+    # Bug detection
+    bd_result = bug_detect.scan(path)
+    bd_score = bug_detect.compute_score(bd_result)
+
+    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade, td_score.grade, bd_score.grade]
 
     return {
         "path": path,
@@ -947,6 +1006,14 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
             "total_items": td_score.total_items,
             "density": td_score.density,
             "by_severity": td_score.by_severity,
+        },
+        "bug_detect": {
+            "score": bd_score.score,
+            "grade": bd_score.grade,
+            "profile": bd_score.profile,
+            "total_findings": bd_score.total_findings,
+            "density": bd_score.density,
+            "by_rule": bd_score.by_rule,
         },
         "overall_grade": _combined_grade(grades),
     }
@@ -1359,6 +1426,27 @@ def handle_get_todo_score(args: dict[str, Any]) -> dict[str, Any]:
     return score.to_dict()
 
 
+def handle_detect_bugs(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    rules = args.get("rules")
+    min_severity = args.get("min_severity", "info")
+    result = bug_detect.scan(path, rules=rules, min_severity=min_severity)
+    return result.to_dict()
+
+
+def handle_get_bug_score(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = bug_detect.scan(path)
+    score = bug_detect.compute_score(result)
+    return score.to_dict()
+
+
 TOOL_HANDLERS = {
     "analyze_complexity": handle_analyze_complexity,
     "get_complexity_score": handle_get_complexity_score,
@@ -1383,6 +1471,8 @@ TOOL_HANDLERS = {
     "get_naming_score": handle_get_naming_score,
     "scan_todos": handle_scan_todos,
     "get_todo_score": handle_get_todo_score,
+    "detect_bugs": handle_detect_bugs,
+    "get_bug_score": handle_get_bug_score,
     "full_health_check": handle_full_health_check,
 }
 

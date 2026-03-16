@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-health-suite"
-version = "0.5.0"
-description = "13 analysis engines, 22 MCP tools for Python code quality. Zero external dependencies."
+version = "0.7.0"
+description = "15 analysis engines, 26 MCP tools for Python code quality. Zero external dependencies."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

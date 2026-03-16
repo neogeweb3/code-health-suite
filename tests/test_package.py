@@ -16,7 +16,7 @@ import pytest
 def test_package_importable():
     import code_health_suite
     assert hasattr(code_health_suite, '__version__')
-    assert code_health_suite.__version__ == "0.4.0"
+    assert code_health_suite.__version__ == "0.7.0"
 
 
 def test_server_importable():
@@ -39,6 +39,7 @@ def test_all_engines_importable():
     from code_health_suite.engines import type_audit
     from code_health_suite.engines import env_audit
     from code_health_suite.engines import git_audit
+    from code_health_suite.engines import bug_detect
     assert hasattr(complexity, 'analyze')
     assert hasattr(dead_code, 'scan')
     assert hasattr(security_scan, 'scan_directory')
@@ -77,7 +78,7 @@ def test_mcp_initialize():
     }])
     assert len(responses) == 1
     assert responses[0]["result"]["serverInfo"]["name"] == "code-health-suite"
-    assert responses[0]["result"]["serverInfo"]["version"] == "0.6.0"
+    assert responses[0]["result"]["serverInfo"]["version"] == "0.7.0"
 
 
 def test_mcp_tools_list():
@@ -89,7 +90,7 @@ def test_mcp_tools_list():
     ])
     tools_resp = [r for r in responses if r.get("id") == 2][0]
     tools = tools_resp["result"]["tools"]
-    assert len(tools) == 24
+    assert len(tools) == 26
     tool_names = {t["name"] for t in tools}
     expected = {
         "analyze_complexity", "get_complexity_score", "find_dead_code",
@@ -100,6 +101,7 @@ def test_mcp_tools_list():
         "get_type_score", "audit_env_vars", "audit_git_commits",
         "get_git_audit_score", "check_naming", "get_naming_score",
         "scan_todos", "get_todo_score",
+        "detect_bugs", "get_bug_score",
         "full_health_check",
     }
     assert tool_names == expected
