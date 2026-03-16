@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server: Code Health Suite v0.7.0 — 15 analysis engines, 26 tools.
+"""MCP server: Code Health Suite v0.8.0 — 16 analysis engines, 28 tools.
 
 Bundles complexity, dead code, security, import graph, clone detection,
 test quality, hotspot, dependency audit, change impact, type coverage,
@@ -44,11 +44,12 @@ from code_health_suite.engines import git_audit
 from code_health_suite.engines import naming_check
 from code_health_suite.engines import todo_scanner
 from code_health_suite.engines import bug_detect
+from code_health_suite.engines import docstring_audit
 
 # --- Constants ---
 
 SERVER_NAME = "code-health-suite"
-SERVER_VERSION = "0.7.0"
+SERVER_VERSION = "0.8.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 # --- Tool Definitions ---
@@ -636,12 +637,49 @@ TOOLS = [
             "required": ["path"],
         },
     },
+    # --- Docstring audit tools ---
+    {
+        "name": "audit_docstrings",
+        "description": (
+            "Audit Python docstring coverage and quality. Checks public functions, "
+            "methods, classes, and modules for missing or low-quality docstrings. "
+            "Returns per-entity coverage, missing docstrings, and quality issues."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File or directory path to audit.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_docstring_score",
+        "description": (
+            "Get a docstring coverage health score (0-100) with grade. "
+            "Measures what percentage of public entities have docstrings "
+            "and penalizes low-quality docstrings. Shows worst files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory path to audit.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
     # --- Combined ---
     {
         "name": "full_health_check",
         "description": (
             "Run all analyses (complexity + dead code + security + imports + "
-            "clones + test quality + type coverage + env audit + naming + TODO debt + bug detection) on a Python project "
+            "clones + test quality + type coverage + env audit + naming + TODO debt + bug detection + docstring coverage) on a Python project "
             "and return a combined health report with scores, grades, and top issues. "
             "Note: hotspot, dependency, and change impact require additional context "
             "(git repo, requirements files, changed files) so are excluded from this scan."
@@ -940,7 +978,11 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
     bd_result = bug_detect.scan(path)
     bd_score = bug_detect.compute_score(bd_result)
 
-    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade, td_score.grade, bd_score.grade]
+    # Docstring coverage
+    ds_result = docstring_audit.scan(path)
+    ds_score = docstring_audit.compute_score(ds_result)
+
+    grades = [cx_score.grade, sec_score.grade, ig_score.grade, tq_result.grade, ta_grade, env_grade, nc_score.grade, td_score.grade, bd_score.grade, ds_score.grade]
 
     return {
         "path": path,
@@ -1014,6 +1056,13 @@ def handle_full_health_check(args: dict[str, Any]) -> dict[str, Any]:
             "total_findings": bd_score.total_findings,
             "density": bd_score.density,
             "by_rule": bd_score.by_rule,
+        },
+        "docstring_coverage": {
+            "score": ds_score.score,
+            "grade": ds_score.grade,
+            "coverage": ds_score.coverage,
+            "total_public": ds_score.total_public,
+            "total_documented": ds_score.total_documented,
         },
         "overall_grade": _combined_grade(grades),
     }
@@ -1447,6 +1496,47 @@ def handle_get_bug_score(args: dict[str, Any]) -> dict[str, Any]:
     return score.to_dict()
 
 
+def handle_audit_docstrings(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = docstring_audit.scan(path)
+
+    issues_list = []
+    for issue in result.issues:
+        issues_list.append({
+            "file": issue.file_path,
+            "line": issue.line_number,
+            "name": issue.name,
+            "kind": issue.kind,
+            "issue_type": issue.issue_type,
+            "severity": issue.severity,
+            "message": issue.message,
+        })
+
+    return {
+        "files_scanned": result.files_scanned,
+        "total_public": result.total_public,
+        "total_documented": result.total_documented,
+        "coverage": round(result.coverage, 4),
+        "total_issues": result.total_issues,
+        "by_kind": result.by_kind,
+        "issues": issues_list,
+        "errors": result.errors,
+    }
+
+
+def handle_get_docstring_score(args: dict[str, Any]) -> dict[str, Any]:
+    path = args["path"]
+    if err := _check_path(path):
+        return {"error": err}
+
+    result = docstring_audit.scan(path)
+    score = docstring_audit.compute_score(result)
+    return score.to_dict()
+
+
 TOOL_HANDLERS = {
     "analyze_complexity": handle_analyze_complexity,
     "get_complexity_score": handle_get_complexity_score,
@@ -1473,6 +1563,8 @@ TOOL_HANDLERS = {
     "get_todo_score": handle_get_todo_score,
     "detect_bugs": handle_detect_bugs,
     "get_bug_score": handle_get_bug_score,
+    "audit_docstrings": handle_audit_docstrings,
+    "get_docstring_score": handle_get_docstring_score,
     "full_health_check": handle_full_health_check,
 }
 

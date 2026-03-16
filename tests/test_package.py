@@ -78,7 +78,7 @@ def test_mcp_initialize():
     }])
     assert len(responses) == 1
     assert responses[0]["result"]["serverInfo"]["name"] == "code-health-suite"
-    assert responses[0]["result"]["serverInfo"]["version"] == "0.7.0"
+    assert responses[0]["result"]["serverInfo"]["version"] == "0.8.0"
 
 
 def test_mcp_tools_list():
@@ -90,7 +90,7 @@ def test_mcp_tools_list():
     ])
     tools_resp = [r for r in responses if r.get("id") == 2][0]
     tools = tools_resp["result"]["tools"]
-    assert len(tools) == 26
+    assert len(tools) == 28
     tool_names = {t["name"] for t in tools}
     expected = {
         "analyze_complexity", "get_complexity_score", "find_dead_code",
@@ -102,6 +102,7 @@ def test_mcp_tools_list():
         "get_git_audit_score", "check_naming", "get_naming_score",
         "scan_todos", "get_todo_score",
         "detect_bugs", "get_bug_score",
+        "audit_docstrings", "get_docstring_score",
         "full_health_check",
     }
     assert tool_names == expected
