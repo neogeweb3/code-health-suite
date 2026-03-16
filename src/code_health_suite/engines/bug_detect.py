@@ -30,6 +30,7 @@ SKIP_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".tox", ".nox", ".eggs", "node_modules", "venv", ".venv", "env",
     ".env", "dist", "build", "egg-info", ".ruff_cache",
+    ".tools", "vendor", "third_party", "site-packages", ".cache",
 }
 
 
@@ -538,7 +539,8 @@ def detect_call_default(tree: ast.AST, filepath: str) -> list[Finding]:
                 continue
 
             call_name = _get_call_name(default)
-            if call_name in _DANGEROUS_DEFAULTS or call_name in _DANGEROUS_DEFAULT_SHORT:
+            short_name = call_name.rsplit(".", 1)[-1] if "." in call_name else call_name
+            if call_name in _DANGEROUS_DEFAULTS or short_name in _DANGEROUS_DEFAULT_SHORT:
                 findings.append(Finding(
                     rule="call-default",
                     severity="warning",
@@ -842,7 +844,12 @@ def find_python_files(path: str) -> list[str]:
 
     files = []
     for root, dirs, filenames in os.walk(path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info")]
+        dirs[:] = [
+            d for d in dirs
+            if d not in SKIP_DIRS
+            and not d.endswith(".egg-info")
+            and not os.path.isfile(os.path.join(root, d, "pyvenv.cfg"))
+        ]
         for fname in sorted(filenames):
             if fname.endswith(".py"):
                 files.append(os.path.join(root, fname))
