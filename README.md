@@ -1,6 +1,8 @@
 # Code Health Suite
 
-13 analysis engines, 22 MCP tools for Python code quality. Zero external dependencies.
+16 analysis engines, 28 MCP tools for Python code quality. Zero external dependencies.
+
+<!-- mcp-name: io.github.neogeweb3/code-health-suite -->
 
 ## Quick Start
 
