@@ -27,8 +27,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nge/code-health-suite"
-Repository = "https://github.com/nge/code-health-suite"
+Homepage = "https://github.com/neogeweb3/code-health-suite"
+Repository = "https://github.com/neogeweb3/code-health-suite"
 
 [project.scripts]
 code-health-suite = "code_health_suite.server:main"
