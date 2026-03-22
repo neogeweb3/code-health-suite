@@ -27,6 +27,26 @@ import sys
 from dataclasses import asdict
 from typing import Any
 
+# Path confinement — restrict filesystem access to configured roots
+_ALLOWED_ROOTS: list[str] = []
+
+
+def _init_allowed_roots() -> None:
+    """Load allowed roots from CODE_HEALTH_ALLOWED_ROOTS env var.
+
+    When set, the server will refuse to scan paths outside these roots.
+    Separate multiple roots with the platform path separator (: on Unix, ; on Windows).
+    Paths are canonicalized (symlinks resolved, .. collapsed).
+    When unset, the server allows any path (backward-compatible).
+    """
+    global _ALLOWED_ROOTS
+    raw = os.environ.get("CODE_HEALTH_ALLOWED_ROOTS", "")
+    if raw:
+        _ALLOWED_ROOTS = [
+            os.path.realpath(r) for r in raw.split(os.pathsep) if r.strip()
+        ]
+
+
 # Engine imports via package
 
 from code_health_suite.engines import complexity
@@ -702,9 +722,15 @@ TOOLS = [
 
 
 def _check_path(path: str) -> str | None:
-    """Return error message if path doesn't exist, else None."""
-    if not os.path.exists(path):
+    """Return error message if path is invalid, doesn't exist, or is outside allowed roots."""
+    real = os.path.realpath(path)
+    if not os.path.exists(real):
         return f"Path not found: {path}"
+    if _ALLOWED_ROOTS:
+        if not any(
+            real == root or real.startswith(root + os.sep) for root in _ALLOWED_ROOTS
+        ):
+            return f"Path not allowed: {path} (outside configured allowed roots)"
     return None
 
 
@@ -1643,6 +1669,7 @@ def run_stdio():
 
 def main():
     """Entry point for the code-health-suite command."""
+    _init_allowed_roots()
     run_stdio()
 
 
