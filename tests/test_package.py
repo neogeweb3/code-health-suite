@@ -56,12 +56,15 @@ def test_ast_utils_importable():
 
 # --- MCP protocol tests ---
 
-def _send_mcp(messages: list[dict]) -> list[dict]:
+def _send_mcp(messages: list[dict], env: dict | None = None) -> list[dict]:
     """Send MCP messages via subprocess and parse responses."""
+    import os
     input_text = "\n".join(json.dumps(m) for m in messages) + "\n"
+    run_env = {**os.environ, **env} if env else None
     result = subprocess.run(
         [sys.executable, "-m", "code_health_suite"],
         input=input_text, capture_output=True, text=True, timeout=30,
+        env=run_env,
     )
     responses = []
     for line in result.stdout.strip().split("\n"):
@@ -138,13 +141,14 @@ def sample_py(tmp_path):
 
 
 def test_tool_analyze_complexity(sample_py):
+    allowed_root = str(Path(sample_py).parent)
     responses = _send_mcp([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0"}}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
          "params": {"name": "analyze_complexity", "arguments": {"path": sample_py}}},
-    ])
+    ], env={"CODE_HEALTH_ALLOWED_ROOTS": allowed_root})
     tool_resp = [r for r in responses if r.get("id") == 2][0]
     assert "isError" not in tool_resp["result"] or not tool_resp["result"]["isError"]
     content = json.loads(tool_resp["result"]["content"][0]["text"])
@@ -153,13 +157,14 @@ def test_tool_analyze_complexity(sample_py):
 
 
 def test_tool_find_dead_code(sample_py):
+    allowed_root = str(Path(sample_py).parent)
     responses = _send_mcp([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0"}}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
          "params": {"name": "find_dead_code", "arguments": {"path": sample_py}}},
-    ])
+    ], env={"CODE_HEALTH_ALLOWED_ROOTS": allowed_root})
     tool_resp = [r for r in responses if r.get("id") == 2][0]
     content = json.loads(tool_resp["result"]["content"][0]["text"])
     assert "findings" in content
@@ -181,13 +186,14 @@ def test_tool_security_scan(sample_py):
 
 
 def test_tool_get_security_score(sample_py):
+    allowed_root = str(Path(sample_py).parent)
     responses = _send_mcp([
         {"jsonrpc": "2.0", "id": 1, "method": "initialize",
          "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0"}}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
          "params": {"name": "get_security_score", "arguments": {"path": sample_py}}},
-    ])
+    ], env={"CODE_HEALTH_ALLOWED_ROOTS": allowed_root})
     tool_resp = [r for r in responses if r.get("id") == 2][0]
     content = json.loads(tool_resp["result"]["content"][0]["text"])
     assert "score" in content
