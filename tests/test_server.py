@@ -90,10 +90,25 @@ class TestCheckPathWithConfinement:
 class TestInitAllowedRoots:
     """Test _init_allowed_roots reads from env var."""
 
-    def test_unset_env_clears_roots(self, monkeypatch):
+    def test_unset_env_defaults_to_cwd(self, monkeypatch):
+        """When env var is unset, defaults to cwd (secure-by-default)."""
         monkeypatch.delenv("CODE_HEALTH_ALLOWED_ROOTS", raising=False)
         _init_allowed_roots()
+        cwd = os.path.realpath(os.getcwd())
+        if cwd == "/":
+            assert server_mod._ALLOWED_ROOTS == []
+        else:
+            assert server_mod._ALLOWED_ROOTS == [cwd]
+
+    def test_unset_env_root_cwd_warns(self, monkeypatch, capsys):
+        """When env var is unset and cwd is /, emit warning and leave empty."""
+        monkeypatch.delenv("CODE_HEALTH_ALLOWED_ROOTS", raising=False)
+        monkeypatch.chdir("/")
+        _init_allowed_roots()
         assert server_mod._ALLOWED_ROOTS == []
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "cwd is /" in captured.err
 
     def test_single_root(self, monkeypatch, tmp_path):
         monkeypatch.setenv("CODE_HEALTH_ALLOWED_ROOTS", str(tmp_path))
@@ -120,3 +135,11 @@ class TestInitAllowedRoots:
         )
         _init_allowed_roots()
         assert len(server_mod._ALLOWED_ROOTS) == 1
+
+    def test_startup_logs_allowed_roots(self, monkeypatch, tmp_path, capsys):
+        """Startup should log the actual allowed roots to stderr."""
+        monkeypatch.setenv("CODE_HEALTH_ALLOWED_ROOTS", str(tmp_path))
+        _init_allowed_roots()
+        captured = capsys.readouterr()
+        assert "allowed roots" in captured.err
+        assert str(os.path.realpath(str(tmp_path))) in captured.err

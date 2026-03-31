@@ -37,7 +37,7 @@ def _init_allowed_roots() -> None:
     When set, the server will refuse to scan paths outside these roots.
     Separate multiple roots with the platform path separator (: on Unix, ; on Windows).
     Paths are canonicalized (symlinks resolved, .. collapsed).
-    When unset, the server allows any path (backward-compatible).
+    When unset, defaults to the current working directory (secure-by-default).
     """
     global _ALLOWED_ROOTS
     raw = os.environ.get("CODE_HEALTH_ALLOWED_ROOTS", "")
@@ -45,6 +45,22 @@ def _init_allowed_roots() -> None:
         _ALLOWED_ROOTS = [
             os.path.realpath(r) for r in raw.split(os.pathsep) if r.strip()
         ]
+    else:
+        cwd = os.path.realpath(os.getcwd())
+        if cwd == "/":
+            print(
+                "WARNING: CODE_HEALTH_ALLOWED_ROOTS is not set and cwd is /. "
+                "Path confinement is disabled. Set CODE_HEALTH_ALLOWED_ROOTS "
+                "to restrict filesystem access.",
+                file=sys.stderr,
+            )
+        else:
+            _ALLOWED_ROOTS = [cwd]
+    if _ALLOWED_ROOTS:
+        print(
+            f"code-health-suite: allowed roots = {_ALLOWED_ROOTS}",
+            file=sys.stderr,
+        )
 
 
 # Engine imports via package
