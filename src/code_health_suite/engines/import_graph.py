@@ -296,6 +296,7 @@ def find_python_files(root: str, excludes: Optional[set] = None) -> list[str]:
             d for d in dirnames
             if d not in excludes
             and not d.startswith(".")
+            and not d.endswith(".egg-info")
             and "site-packages" not in d
             and "node_modules" not in d
             and not (d.endswith("_env") or d.startswith(".venv"))

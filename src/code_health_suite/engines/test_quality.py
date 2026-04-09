@@ -387,7 +387,7 @@ def discover_test_files(root: str) -> list[str]:
         # Skip unwanted directories
         dirnames[:] = [
             d for d in dirnames
-            if d not in SKIP_DIRS and not _is_venv(current / d)
+            if d not in SKIP_DIRS and not d.endswith(".egg-info") and not _is_venv(current / d)
         ]
         for fname in filenames:
             fpath = current / fname
